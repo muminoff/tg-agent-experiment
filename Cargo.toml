@@ -1,6 +1,9 @@
 [package]
 name = "tg-agent-experiment"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+grammers-client = { git = "https://github.com/Lonami/grammers" }
+grammers-session = { git = "https://github.com/Lonami/grammers" }
+tokio = { version = "1", features = ["full"] }
