@@ -1,1 +1,8 @@
 /target
+
+# Telegram session files
+*.session
+*.session.bak
+
+# Temporary files
+info.txt

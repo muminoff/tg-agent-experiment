@@ -97,10 +97,7 @@ async fn async_main() -> Result<()> {
 
     // Get current user info
     let me = client.get_me().await?;
-    println!(
-        "\n✓ Hello, {}!",
-        me.first_name().unwrap_or("Unknown")
-    );
+    println!("\n✓ Hello, {}!", me.first_name().unwrap_or("Unknown"));
     println!("✓ User ID: {}", me.raw.id());
 
     println!("\n=== Connection successful! ===");
