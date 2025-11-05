@@ -268,20 +268,20 @@ encoding.codec = "json"
 ```mermaid
 graph TB
     subgraph "Agent Host"
-        Agent[Telegram Agent<br/>tg-agent-experiment]
-        LogFiles[/var/log/tg-agent/<br/>agent-001.log]
-        LogShipper[Log Shipper<br/>Filebeat/Vector/Fluentd]
+        Agent["Telegram Agent<br/>tg-agent-experiment"]
+        LogFiles["Log Files<br/>/var/log/tg-agent/*.log"]
+        LogShipper["Log Shipper<br/>Filebeat/Vector/Fluentd"]
     end
 
     subgraph "External Services"
-        GrpcServer[gRPC Server]
-        LogAggregator[Log Aggregator<br/>Loki/Elasticsearch]
+        GrpcServer["gRPC Server"]
+        LogAggregator["Log Aggregator<br/>Loki/Elasticsearch"]
     end
 
-    Agent -->|writes JSON logs| LogFiles
-    Agent -->|ERROR logs only<br/>+ metrics + heartbeats| GrpcServer
-    LogShipper -->|reads files| LogFiles
-    LogShipper -->|ships all logs| LogAggregator
+    Agent -->|"writes JSON logs"| LogFiles
+    Agent -->|"ERROR logs only<br/>+ metrics + heartbeats"| GrpcServer
+    LogShipper -->|"reads files"| LogFiles
+    LogShipper -->|"ships all logs"| LogAggregator
 
     style Agent fill:#90ee90,stroke:#333,stroke-width:2px
     style LogFiles fill:#ffeb9c,stroke:#333,stroke-width:2px
