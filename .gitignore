@@ -1,1 +1,5 @@
 /target
+
+# Telegram session files (contain authentication keys - NEVER commit!)
+*.session
+*.session-journal

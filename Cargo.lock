@@ -860,6 +860,7 @@ dependencies = [
  "grammers-client",
  "grammers-mtsender",
  "grammers-session",
+ "sqlite",
  "tokio",
 ]
 
