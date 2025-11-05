@@ -3,6 +3,7 @@ use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
 use std::env;
 use std::io::{self, BufRead as _, Write as _};
+use std::path::Path;
 use std::sync::Arc;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -35,9 +36,18 @@ async fn async_main() -> Result<()> {
 
     let api_hash = env::var("TG_HASH").expect("TG_HASH environment variable not set");
 
+    // Check if session file exists
+    let session_exists = Path::new(SESSION_FILE).exists();
+    if session_exists {
+        println!("Found existing session file: {}", SESSION_FILE);
+        println!("Attempting to use saved session...");
+    } else {
+        println!("No existing session found. Will create new session.");
+    }
+
     println!("Connecting to Telegram...");
 
-    // Create session storage
+    // Create session storage (opens existing or creates new)
     let session = Arc::new(SqliteSession::open(SESSION_FILE)?);
 
     // Create sender pool and client
@@ -50,7 +60,7 @@ async fn async_main() -> Result<()> {
 
     // Check if we're already signed in
     if !client.is_authorized().await? {
-        println!("\nNot authorized. Starting sign-in process...");
+        println!("\nSession found but not authorized. Starting sign-in process...");
 
         // Get phone number from user
         let phone = prompt("Enter your phone number (international format): ")?;
@@ -79,8 +89,10 @@ async fn async_main() -> Result<()> {
             }
             Err(e) => return Err(e.into()),
         }
+
+        println!("Session saved to {}", SESSION_FILE);
     } else {
-        println!("Already authorized!");
+        println!("Successfully authenticated using existing session!");
     }
 
     // Get current user info
@@ -91,7 +103,6 @@ async fn async_main() -> Result<()> {
     );
     println!("✓ User ID: {}", me.raw.id());
 
-    println!("✓ Session saved to {}", SESSION_FILE);
     println!("\n=== Connection successful! ===");
 
     Ok(())
