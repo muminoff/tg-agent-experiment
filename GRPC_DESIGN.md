@@ -35,43 +35,43 @@ Pipeline             Pipeline       Pipeline
 ```mermaid
 graph TB
     subgraph "Control Plane (External Project)"
-        Server[gRPC Server<br/>Orchestrator]
-        CLI[CLI Tool<br/>Human Operator]
+        Server["gRPC Server<br/>Orchestrator"]
+        CLI["CLI Tool<br/>Human Operator"]
     end
 
     subgraph "Agent Fleet"
         subgraph "Agent 1 (agent-001)"
-            A1[Telegram Agent<br/>grpc_client.rs]
-            A1T[Telegram API<br/>Account 1]
+            A1["Telegram Agent<br/>grpc_client.rs"]
+            A1T["Telegram API<br/>Account 1"]
         end
 
         subgraph "Agent 2 (agent-002)"
-            A2[Telegram Agent<br/>grpc_client.rs]
-            A2T[Telegram API<br/>Account 2]
+            A2["Telegram Agent<br/>grpc_client.rs"]
+            A2T["Telegram API<br/>Account 2"]
         end
 
         subgraph "Agent N (agent-00N)"
-            AN[Telegram Agent<br/>grpc_client.rs]
-            ANT[Telegram API<br/>Account N]
+            AN["Telegram Agent<br/>grpc_client.rs"]
+            ANT["Telegram API<br/>Account N"]
         end
     end
 
     subgraph "Data Infrastructure"
-        DL[Data Lake Pipeline<br/>HTTP API]
+        DL["Data Lake Pipeline<br/>HTTP API"]
     end
 
-    CLI -->|manage agents| Server
-    Server <-.->|bidirectional<br/>gRPC stream| A1
-    Server <-.->|bidirectional<br/>gRPC stream| A2
-    Server <-.->|bidirectional<br/>gRPC stream| AN
+    CLI -->|"manage agents"| Server
+    Server <-.->|"bidirectional<br/>gRPC stream"| A1
+    Server <-.->|"bidirectional<br/>gRPC stream"| A2
+    Server <-.->|"bidirectional<br/>gRPC stream"| AN
 
-    A1 -->|collect messages| A1T
-    A2 -->|collect messages| A2T
-    AN -->|collect messages| ANT
+    A1 -->|"collect messages"| A1T
+    A2 -->|"collect messages"| A2T
+    AN -->|"collect messages"| ANT
 
-    A1 -->|HTTP POST<br/>anonymized data| DL
-    A2 -->|HTTP POST<br/>anonymized data| DL
-    AN -->|HTTP POST<br/>anonymized data| DL
+    A1 -->|"HTTP POST<br/>anonymized data"| DL
+    A2 -->|"HTTP POST<br/>anonymized data"| DL
+    AN -->|"HTTP POST<br/>anonymized data"| DL
 
     style Server fill:#6b9eff,stroke:#333,stroke-width:3px
     style CLI fill:#ffeb9c,stroke:#333,stroke-width:2px
@@ -435,53 +435,53 @@ tg-agent-experiment/
 ```mermaid
 graph TB
     subgraph "Agent Process"
-        Main[main.rs]
-        GrpcClient[grpc_client.rs]
-        CmdHandler[command_handler.rs]
-        Telemetry[telemetry.rs]
-        State[state.rs<br/>Arc&lt;RwLock&lt;AgentState&gt;&gt;]
-        Collector[collector.rs]
-        Pipeline[pipeline.rs]
-        LogFiles[(/var/log/tg-agent/<br/>JSON log files)]
+        Main["main.rs"]
+        GrpcClient["grpc_client.rs"]
+        CmdHandler["command_handler.rs"]
+        Telemetry["telemetry.rs"]
+        State["state.rs<br/>Arc&lt;RwLock&lt;AgentState&gt;&gt;"]
+        Collector["collector.rs"]
+        Pipeline["pipeline.rs"]
+        LogFiles["Log Files<br/>/var/log/tg-agent/*.log"]
     end
 
     subgraph "External Systems"
-        Server[gRPC Server]
-        Telegram[Telegram API]
-        DataLake[Data Lake Pipeline]
-        LogShipper[Log Shipper<br/>Filebeat/Vector]
-        LogAggregator[Log Aggregator<br/>Loki/Elasticsearch]
+        Server["gRPC Server"]
+        Telegram["Telegram API"]
+        DataLake["Data Lake Pipeline"]
+        LogShipper["Log Shipper<br/>Filebeat/Vector"]
+        LogAggregator["Log Aggregator<br/>Loki/Elasticsearch"]
     end
 
-    Main -->|spawn| GrpcClient
-    Main -->|spawn| CmdHandler
-    Main -->|spawn| Telemetry
-    Main -->|spawn| Collector
+    Main -->|"spawn"| GrpcClient
+    Main -->|"spawn"| CmdHandler
+    Main -->|"spawn"| Telemetry
+    Main -->|"spawn"| Collector
 
-    Server <-->|bidirectional<br/>stream| GrpcClient
-    GrpcClient -->|ServerCommand| CmdHandler
-    Telemetry -->|errors + metrics<br/>+ heartbeats| GrpcClient
+    Server <-->|"bidirectional<br/>stream"| GrpcClient
+    GrpcClient -->|"ServerCommand"| CmdHandler
+    Telemetry -->|"errors + metrics<br/>+ heartbeats"| GrpcClient
 
-    CmdHandler -->|read/write| State
-    Telemetry -->|read| State
-    Collector -->|read/write| State
+    CmdHandler -->|"read/write"| State
+    Telemetry -->|"read"| State
+    Collector -->|"read/write"| State
 
-    CmdHandler -.->|control signals| Collector
-    Collector -->|messages| Pipeline
-    Pipeline -->|HTTP| DataLake
-    Collector -->|read messages| Telegram
+    CmdHandler -.->|"control signals"| Collector
+    Collector -->|"messages"| Pipeline
+    Pipeline -->|"HTTP"| DataLake
+    Collector -->|"read messages"| Telegram
 
-    Collector -->|ERROR logs only| Telemetry
-    CmdHandler -->|responses| Telemetry
-    Pipeline -->|ERROR logs only| Telemetry
+    Collector -->|"ERROR logs only"| Telemetry
+    CmdHandler -->|"responses"| Telemetry
+    Pipeline -->|"ERROR logs only"| Telemetry
 
-    Telemetry -->|write all logs<br/>(debug/info/warn/error)| LogFiles
-    Collector -->|write all logs| LogFiles
-    CmdHandler -->|write all logs| LogFiles
-    Pipeline -->|write all logs| LogFiles
+    Telemetry -->|"write all logs<br/>(debug/info/warn/error)"| LogFiles
+    Collector -->|"write all logs"| LogFiles
+    CmdHandler -->|"write all logs"| LogFiles
+    Pipeline -->|"write all logs"| LogFiles
 
-    LogShipper -->|read| LogFiles
-    LogShipper -->|ship all logs| LogAggregator
+    LogShipper -->|"read"| LogFiles
+    LogShipper -->|"ship all logs"| LogAggregator
 
     style State fill:#f9f,stroke:#333,stroke-width:3px
     style Server fill:#bbf,stroke:#333,stroke-width:2px
@@ -744,8 +744,8 @@ Sent from server via `UpdateConfig` command, overrides local config:
 stateDiagram-v2
     [*] --> STARTING: Agent Launch
 
-    STARTING --> RUNNING: gRPC Connected &<br/>Telegram Authenticated
-    STARTING --> ERROR: Connection Failed or<br/>Auth Failed
+    STARTING --> RUNNING: gRPC Connected and Telegram Authenticated
+    STARTING --> ERROR: Connection Failed or Auth Failed
 
     RUNNING --> PAUSED: StopCollection Command
     RUNNING --> ERROR: Critical Error
@@ -857,7 +857,7 @@ sequenceDiagram
     GrpcClient->>Server: CommandResponse
 
     Collector->>Collector: Join new channel
-    Collector->>Telemetry: Write INFO log to file<br/>("Joined channel X")
+    Collector->>Telemetry: Write INFO log to file (Joined channel)
 
     Collector->>State: Update active_channels
     Collector->>Telemetry: StatusUpdate
@@ -878,10 +878,10 @@ sequenceDiagram
     Note over GrpcClient,Server: Connection Lost
     GrpcClient->>GrpcClient: Detect connection error
 
-    GrpcClient->>State: Save current config as<br/>"last known config"
+    GrpcClient->>State: Save current config as last known config
     State-->>GrpcClient: Config saved
 
-    Note over Collector: Collector continues with<br/>last known config
+    Note over Collector: Collector continues with last known config
 
     loop Reconnection Attempts (Exponential Backoff)
         GrpcClient->>Server: Attempt reconnect
@@ -896,7 +896,7 @@ sequenceDiagram
     Server-->>GrpcClient: Acknowledgment
 
     Server->>GrpcClient: Reconnected(action=RESUME)
-    Note over GrpcClient: Server decides action based<br/>on agent_id and server state
+    Note over GrpcClient: Server decides action based on agent_id and server state
 
     alt Action: RESUME
         GrpcClient->>GrpcClient: Continue with current config
@@ -1145,48 +1145,48 @@ sequenceDiagram
     participant Pipeline as pipeline.rs
     participant DataLake as Data Lake API
     participant Telemetry as telemetry.rs
-    participant LogFile as /var/log/tg-agent/<br/>*.log
+    participant LogFile as Log Files (/var/log/tg-agent)
     participant Server as gRPC Server
 
     loop Continuous Collection
         TG->>Collector: New message event
         Collector->>Collector: Extract message data
-        Collector->>LogFile: Write INFO log<br/>(JSON: "Received message")
+        Collector->>LogFile: Write INFO log (JSON)
 
         Collector->>Anonymizer: Anonymize(message)
-        Anonymizer->>Anonymizer: Remove PII<br/>(user IDs, names, etc.)
+        Anonymizer->>Anonymizer: Remove PII (user IDs, names, etc.)
         Anonymizer->>Anonymizer: Round timestamp
         Anonymizer-->>Collector: Anonymized message
 
         Collector->>Pipeline: Queue message
 
         alt Batch Ready
-            Pipeline->>Pipeline: Prepare batch<br/>(100 messages)
-            Pipeline->>DataLake: HTTP POST /ingest<br/>(batch of messages)
+            Pipeline->>Pipeline: Prepare batch (100 messages)
+            Pipeline->>DataLake: HTTP POST /ingest (batch)
             DataLake-->>Pipeline: 200 OK
-            Pipeline->>LogFile: Write INFO log<br/>(JSON: "Batch sent successfully")
+            Pipeline->>LogFile: Write INFO log (Batch sent)
         else Flush Interval
             Pipeline->>Pipeline: Flush after 60s
-            Pipeline->>DataLake: HTTP POST /ingest<br/>(partial batch)
+            Pipeline->>DataLake: HTTP POST /ingest (partial batch)
             DataLake-->>Pipeline: 200 OK
-            Pipeline->>LogFile: Write INFO log<br/>(JSON: "Flush completed")
+            Pipeline->>LogFile: Write INFO log (Flush completed)
         else Error
             Pipeline->>DataLake: HTTP POST /ingest
             DataLake-->>Pipeline: 500 Error
-            Pipeline->>LogFile: Write ERROR log<br/>(JSON: "Failed to send batch")
+            Pipeline->>LogFile: Write ERROR log (Failed to send)
             Pipeline->>Telemetry: Send ERROR to gRPC
             Telemetry->>Server: ErrorLog
         end
 
-        Collector->>Telemetry: Update metrics<br/>(msg count, rate)
+        Collector->>Telemetry: Update metrics (msg count, rate)
     end
 
     loop Every 60s
-        Telemetry->>Server: MetricsSnapshot<br/>(messages_collected, rate)
+        Telemetry->>Server: MetricsSnapshot (messages_collected, rate)
     end
 
-    Note over Collector,LogFile: All logs written to file<br/>Only ERRORs sent to server
-    Note over Collector,DataLake: Data flows directly to lake<br/>Server only gets metrics + errors
+    Note over Collector,LogFile: All logs written to file - Only ERRORs sent to server
+    Note over Collector,DataLake: Data flows directly to lake - Server only gets metrics + errors
 ```
 
 ### Deployment
