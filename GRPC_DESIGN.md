@@ -91,7 +91,7 @@ graph TB
 - gRPC server acting as orchestration control plane
 - Manages multiple Telegram agent instances
 - Sends commands to agents (start/stop, add channels, configure)
-- Receives telemetry, status, and logs from agents
+- Receives telemetry, status, and ERROR-level alerts from agents
 - Provides CLI interface for human operators
 
 ## Design Decisions
@@ -141,12 +141,13 @@ Based on requirements analysis, the following architecture decisions were made:
 - Query status and state
 
 ### 7. Telemetry Scope
-**Comprehensive telemetry**
-- Debug logs, info, warnings, errors
+**Metrics and critical errors only**
+- ERROR level logs only (for real-time alerting)
 - Metrics (messages/sec, channel count, connection status)
 - Heartbeats (periodic keepalive)
 - State changes and events
 - Command execution results
+- Note: Full logs (debug/info/warn/error) written to local files, shipped separately to log aggregator
 
 ### 8. Agent Registration
 **Agent ID from local config**
@@ -184,6 +185,118 @@ Based on requirements analysis, the following architecture decisions were made:
 - Commands and telemetry flow simultaneously
 - Efficient and real-time
 - Reduces connection overhead
+
+### 13. Logging Architecture
+**File-based with separate log shipping**
+- **Agent writes logs**: JSON-structured logs to local rotating files (`/var/log/tg-agent/`)
+- **Log levels**: All levels written to files (DEBUG, INFO, WARN, ERROR)
+- **Log rotation**: Automatic rotation by size/time (e.g., 100MB or daily)
+- **Log shipper**: External process (Filebeat/Vector/Fluentd) reads files and ships to centralized log aggregator
+- **gRPC telemetry**: Only ERROR-level logs sent to gRPC server for real-time alerting
+- **Benefits**:
+  - Clean separation of concerns (agent doesn't manage log aggregator connection)
+  - Agent stays simple and focused
+  - Battle-tested log shipping tools
+  - Logs preserved locally for debugging
+  - Centralized log aggregation for analysis
+
+## Logging Architecture Details
+
+### Log File Structure
+
+```
+/var/log/tg-agent/
+├── agent-001.log          # Current log file
+├── agent-001.log.1        # Rotated log (previous)
+├── agent-001.log.2.gz     # Compressed older logs
+└── ...
+```
+
+### Log Format (JSON Lines)
+
+```json
+{"timestamp":"2025-11-06T00:00:00Z","level":"INFO","component":"collector","message":"Joined channel @example","context":{"channel":"@example","member_count":1234}}
+{"timestamp":"2025-11-06T00:00:15Z","level":"ERROR","component":"pipeline","message":"Failed to send batch to data lake","context":{"error":"connection timeout","batch_size":100,"retry_count":3}}
+```
+
+### Log Shipping Configuration
+
+**Example: Filebeat config for shipping to Elasticsearch/Loki**
+
+```yaml
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/tg-agent/*.log
+    json.keys_under_root: true
+    json.add_error_key: true
+    fields:
+      agent_id: ${AGENT_ID}
+      environment: production
+
+output.elasticsearch:
+  hosts: ["https://logs.example.com:9200"]
+  index: "tg-agent-logs-%{+yyyy.MM.dd}"
+```
+
+**Example: Vector config for shipping to Loki**
+
+```toml
+[sources.tg_agent_logs]
+type = "file"
+include = ["/var/log/tg-agent/*.log"]
+data_dir = "/var/lib/vector"
+
+[transforms.parse_json]
+type = "remap"
+inputs = ["tg_agent_logs"]
+source = '''
+. = parse_json!(.message)
+.agent_id = get_env_var!("AGENT_ID")
+'''
+
+[sinks.loki]
+type = "loki"
+inputs = ["parse_json"]
+endpoint = "https://loki.example.com"
+encoding.codec = "json"
+```
+
+### Deployment with Log Shipper
+
+```mermaid
+graph TB
+    subgraph "Agent Host"
+        Agent[Telegram Agent<br/>tg-agent-experiment]
+        LogFiles[/var/log/tg-agent/<br/>agent-001.log]
+        LogShipper[Log Shipper<br/>Filebeat/Vector/Fluentd]
+    end
+
+    subgraph "External Services"
+        GrpcServer[gRPC Server]
+        LogAggregator[Log Aggregator<br/>Loki/Elasticsearch]
+    end
+
+    Agent -->|writes JSON logs| LogFiles
+    Agent -->|ERROR logs only<br/>+ metrics + heartbeats| GrpcServer
+    LogShipper -->|reads files| LogFiles
+    LogShipper -->|ships all logs| LogAggregator
+
+    style Agent fill:#90ee90,stroke:#333,stroke-width:2px
+    style LogFiles fill:#ffeb9c,stroke:#333,stroke-width:2px
+    style LogShipper fill:#b0d4ff,stroke:#333,stroke-width:2px
+    style LogAggregator fill:#ffb0d4,stroke:#333,stroke-width:2px
+```
+
+### Log Levels and Usage
+
+| Level | Sent to gRPC | Written to File | Use Case |
+|-------|--------------|-----------------|----------|
+| DEBUG | ❌ No | ✅ Yes | Development debugging, verbose tracing |
+| INFO  | ❌ No | ✅ Yes | Normal operations, state changes |
+| WARN  | ❌ No | ✅ Yes | Recoverable issues, degraded performance |
+| ERROR | ✅ Yes | ✅ Yes | Critical errors requiring immediate attention |
 
 ## Component Architecture
 
@@ -249,15 +362,16 @@ tg-agent-experiment/
 - Updates shared state atomically
 
 #### telemetry.rs
-- Collects logs from all components
+- Writes structured JSON logs to local rotating files (all levels: debug/info/warn/error)
+- Sends only ERROR-level logs to gRPC server (for real-time alerting)
 - Gathers runtime metrics:
   - Messages collected counter
   - Messages per second rate
   - Active connections count
   - Uptime
 - Sends periodic heartbeats (every 30s)
-- Streams everything to gRPC client for transmission
-- Formats logs and metrics into protobuf messages
+- Sends metrics snapshots and status updates to gRPC client
+- Formats telemetry data into protobuf messages
 
 #### state.rs
 - Shared agent state (`Arc<RwLock<AgentState>>`)
@@ -288,12 +402,12 @@ tg-agent-experiment/
       │                                          │
 ┌─────▼──────────┐                         ┌────▼─────────┐
 │ grpc_client.rs │◄────────────────────────│ telemetry.rs │
-│  (stream)      │  logs, metrics,         │  (collect)   │
-└─────┬──────────┘  heartbeats, responses  └────▲─────────┘
+│  (stream)      │  errors, metrics,       │  (collect)   │
+└─────┬──────────┘  heartbeats, responses  └────┬─────────┘
       │                                          │
-      │ commands                                 │ logs/metrics
+      │ commands                                 │ errors/metrics
       ▼                                          │
-┌──────────────────┐     updates           ┌────┴─────┐
+┌──────────────────┐     updates           ┌────▼─────┐
 │command_handler.rs│────────────────────►  │ state.rs │
 └─────┬────────────┘                       └────▲─────┘
       │                                          │
@@ -303,6 +417,17 @@ tg-agent-experiment/
 │collector.rs │─────────►│ pipeline.rs  │───────┘
 │ (Telegram)  │ messages │ (Data Lake)  │
 └─────────────┘          └──────────────┘
+      │                        │
+      │ all components write   │
+      ▼                        ▼
+┌──────────────────────────────────┐
+│  /var/log/tg-agent/*.log         │
+│  (JSON structured logs, all levels)│
+└──────────────────────────────────┘
+           │
+           │ (external log shipper)
+           ▼
+    Log Aggregator
 ```
 
 ### Component Interaction Diagram
@@ -317,12 +442,15 @@ graph TB
         State[state.rs<br/>Arc&lt;RwLock&lt;AgentState&gt;&gt;]
         Collector[collector.rs]
         Pipeline[pipeline.rs]
+        LogFiles[(/var/log/tg-agent/<br/>JSON log files)]
     end
 
     subgraph "External Systems"
         Server[gRPC Server]
         Telegram[Telegram API]
         DataLake[Data Lake Pipeline]
+        LogShipper[Log Shipper<br/>Filebeat/Vector]
+        LogAggregator[Log Aggregator<br/>Loki/Elasticsearch]
     end
 
     Main -->|spawn| GrpcClient
@@ -332,7 +460,7 @@ graph TB
 
     Server <-->|bidirectional<br/>stream| GrpcClient
     GrpcClient -->|ServerCommand| CmdHandler
-    Telemetry -->|AgentMessage| GrpcClient
+    Telemetry -->|errors + metrics<br/>+ heartbeats| GrpcClient
 
     CmdHandler -->|read/write| State
     Telemetry -->|read| State
@@ -343,13 +471,23 @@ graph TB
     Pipeline -->|HTTP| DataLake
     Collector -->|read messages| Telegram
 
-    Collector -->|logs/metrics| Telemetry
+    Collector -->|ERROR logs only| Telemetry
     CmdHandler -->|responses| Telemetry
-    Pipeline -->|logs| Telemetry
+    Pipeline -->|ERROR logs only| Telemetry
+
+    Telemetry -->|write all logs<br/>(debug/info/warn/error)| LogFiles
+    Collector -->|write all logs| LogFiles
+    CmdHandler -->|write all logs| LogFiles
+    Pipeline -->|write all logs| LogFiles
+
+    LogShipper -->|read| LogFiles
+    LogShipper -->|ship all logs| LogAggregator
 
     style State fill:#f9f,stroke:#333,stroke-width:3px
     style Server fill:#bbf,stroke:#333,stroke-width:2px
     style DataLake fill:#bfb,stroke:#333,stroke-width:2px
+    style LogFiles fill:#ffeb9c,stroke:#333,stroke-width:2px
+    style LogAggregator fill:#ffb0d4,stroke:#333,stroke-width:2px
 ```
 
 ## gRPC Service Contract
@@ -380,7 +518,7 @@ message AgentMessage {
     RegisterRequest register = 2;
     Heartbeat heartbeat = 3;
     StatusUpdate status = 4;
-    LogEntry log = 5;
+    ErrorLog error = 5;  // Only ERROR-level logs
     MetricsSnapshot metrics = 6;
     CommandResponse response = 7;
   }
@@ -423,13 +561,13 @@ enum AgentState {
 }
 ```
 
-**LogEntry** - Debug, info, warn, error logs
+**ErrorLog** - ERROR-level logs only (for real-time alerting)
 ```protobuf
-message LogEntry {
+message ErrorLog {
   int64 timestamp = 1;
-  string level = 2;  // "debug", "info", "warn", "error"
-  string message = 3;
-  optional string context = 4;  // JSON or structured data
+  string message = 2;
+  optional string context = 3;  // JSON with error details, stack trace, etc.
+  optional string component = 4;  // e.g., "collector", "pipeline", "grpc_client"
 }
 ```
 
@@ -719,9 +857,7 @@ sequenceDiagram
     GrpcClient->>Server: CommandResponse
 
     Collector->>Collector: Join new channel
-    Collector->>Telemetry: LogEntry("Joined channel X")
-    Telemetry->>GrpcClient: Queue log
-    GrpcClient->>Server: LogEntry
+    Collector->>Telemetry: Write INFO log to file<br/>("Joined channel X")
 
     Collector->>State: Update active_channels
     Collector->>Telemetry: StatusUpdate
@@ -779,7 +915,7 @@ sequenceDiagram
 
     loop Resume Normal Operation
         GrpcClient->>Server: Heartbeat every 30s
-        Collector->>Server: Telemetry & logs
+        Telemetry->>Server: Metrics + errors (if any)
     end
 ```
 
@@ -1009,11 +1145,13 @@ sequenceDiagram
     participant Pipeline as pipeline.rs
     participant DataLake as Data Lake API
     participant Telemetry as telemetry.rs
+    participant LogFile as /var/log/tg-agent/<br/>*.log
     participant Server as gRPC Server
 
     loop Continuous Collection
         TG->>Collector: New message event
         Collector->>Collector: Extract message data
+        Collector->>LogFile: Write INFO log<br/>(JSON: "Received message")
 
         Collector->>Anonymizer: Anonymize(message)
         Anonymizer->>Anonymizer: Remove PII<br/>(user IDs, names, etc.)
@@ -1026,12 +1164,18 @@ sequenceDiagram
             Pipeline->>Pipeline: Prepare batch<br/>(100 messages)
             Pipeline->>DataLake: HTTP POST /ingest<br/>(batch of messages)
             DataLake-->>Pipeline: 200 OK
-            Pipeline->>Telemetry: Log success
+            Pipeline->>LogFile: Write INFO log<br/>(JSON: "Batch sent successfully")
         else Flush Interval
             Pipeline->>Pipeline: Flush after 60s
             Pipeline->>DataLake: HTTP POST /ingest<br/>(partial batch)
             DataLake-->>Pipeline: 200 OK
-            Pipeline->>Telemetry: Log success
+            Pipeline->>LogFile: Write INFO log<br/>(JSON: "Flush completed")
+        else Error
+            Pipeline->>DataLake: HTTP POST /ingest
+            DataLake-->>Pipeline: 500 Error
+            Pipeline->>LogFile: Write ERROR log<br/>(JSON: "Failed to send batch")
+            Pipeline->>Telemetry: Send ERROR to gRPC
+            Telemetry->>Server: ErrorLog
         end
 
         Collector->>Telemetry: Update metrics<br/>(msg count, rate)
@@ -1041,7 +1185,8 @@ sequenceDiagram
         Telemetry->>Server: MetricsSnapshot<br/>(messages_collected, rate)
     end
 
-    Note over Collector,DataLake: Data flows directly to lake<br/>Server only gets telemetry
+    Note over Collector,LogFile: All logs written to file<br/>Only ERRORs sent to server
+    Note over Collector,DataLake: Data flows directly to lake<br/>Server only gets metrics + errors
 ```
 
 ### Deployment
@@ -1051,9 +1196,11 @@ sequenceDiagram
 - Agents can run on different machines
 
 ### Monitoring
-- Server receives all logs and metrics from agents
-- Centralized visibility into all agent operations
-- Health checks via heartbeats
+- **gRPC Server receives**: ERROR-level alerts, metrics snapshots, heartbeats, status updates
+- **Log Aggregator receives**: All logs (debug/info/warn/error) from all agents via log shippers
+- Centralized visibility into all agent operations via dual channels
+- Health checks via heartbeats to gRPC server
+- Full debugging via log aggregator queries
 
 ### Failure Scenarios
 
