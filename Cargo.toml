@@ -6,4 +6,5 @@ edition = "2021"
 [dependencies]
 grammers-client = { git = "https://github.com/Lonami/grammers" }
 grammers-session = { git = "https://github.com/Lonami/grammers" }
+grammers-mtsender = { git = "https://github.com/Lonami/grammers" }
 tokio = { version = "1", features = ["full"] }

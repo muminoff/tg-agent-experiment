@@ -858,6 +858,7 @@ name = "tg-agent-experiment"
 version = "0.1.0"
 dependencies = [
  "grammers-client",
+ "grammers-mtsender",
  "grammers-session",
  "tokio",
 ]
